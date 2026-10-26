@@ -1,5 +1,4 @@
 import { Component, Element, Prop, State, Watch, h } from '@stencil/core';
-import { loadPlayerFromPreparedZip, prepareZipBundle, type LoadedZipPlayer, type PreparedZipBundle, ZipPlayerLoadError } from '../../utils/zip-player-loader';
 
 /**
  * <lido-standalone> usage example:
@@ -81,17 +80,9 @@ export class LidoStandalone {
   /** This might be used by <lido-home> if referencing assets. */
   @State() xmlBaseUrl?: string;
 
-  /** ZIP contents prepared before the player/lesson components are rendered. */
-  @State() preparedZipBundle?: PreparedZipBundle;
-
-  @State() playerInitializationError?: string;
-
-  private loadedZipPlayer?: LoadedZipPlayer;
-
   // Re-inject scripts if the baseUrl changes
   @Watch('baseUrl')
   onBaseUrlChange() {
-    if (this.zipUrl) return;
     this.injectLidoScripts();
   }
 
@@ -107,53 +98,11 @@ export class LidoStandalone {
     this.fetchXmlData();
   }
 
-  async componentWillLoad() {
-    // Prepare ZIP contents before rendering lido-home. Phase 1 only detects
-    // ZIP player code; it does not execute the ZIP JavaScript yet.
-    await this.prepareZipBundleForCurrentUrl();
-
-    if (this.preparedZipBundle?.hasPlayerCode) {
-      try {
-        this.loadedZipPlayer = await loadPlayerFromPreparedZip(this.preparedZipBundle);
-        this.scriptsInjected = true;
-      } catch (error) {
-        if (error instanceof ZipPlayerLoadError && error.partialRegistration) {
-          console.error('ZIP player registered partially; refusing bundled-player fallback.', error);
-          this.playerInitializationError = error.message;
-          return;
-        }
-        console.warn('ZIP player failed before registration; using existing player fallback.', error);
-      }
-    }
-
+  componentWillLoad() {
     // 1) Attempt to inject the Lido scripts from baseUrl
-    if (!this.loadedZipPlayer) this.injectLidoScripts();
+    this.injectLidoScripts();
     // 2) Fetch the XML (or use the xmlData if provided)
     this.fetchXmlData();
-  }
-
-  @Watch('zipUrl')
-  async onZipUrlChange(newZipUrl?: string, oldZipUrl?: string) {
-    if (newZipUrl === oldZipUrl) return;
-    await this.prepareZipBundleForCurrentUrl();
-  }
-
-  private async prepareZipBundleForCurrentUrl() {
-    this.playerInitializationError = undefined;
-    this.loadedZipPlayer?.dispose();
-    this.loadedZipPlayer = undefined;
-    this.preparedZipBundle?.dispose();
-    this.preparedZipBundle = undefined;
-
-    if (!this.zipUrl) return;
-
-    try {
-      this.preparedZipBundle = await prepareZipBundle(this.zipUrl);
-    } catch (error) {
-      // Phase 1 must not change player selection. If preparation fails,
-      // lido-home retains its existing fallback extraction behavior.
-      console.warn('Unable to prepare lesson ZIP for reuse:', error);
-    }
   }
 
   private async injectLidoScripts() {
@@ -340,12 +289,6 @@ private doesFileExistSync(url: string): boolean {
       });
   }
 
-  disconnectedCallback() {
-    this.loadedZipPlayer?.dispose();
-    this.preparedZipBundle?.dispose();
-    this.preparedZipBundle = undefined;
-  }
-
   private fetchXmlData() {
     // If the user provided raw XML data, just store it
     if (this.xmlData) {
@@ -390,9 +333,6 @@ private doesFileExistSync(url: string): boolean {
      */
 
     const lang = this.language || 'en';
-    if (this.playerInitializationError) {
-      return <div role="alert">{this.playerInitializationError}</div>;
-    }
     return <lido-home  common-audio-path={this.commonAudioPath} initial-index={this.initialIndex} canplay={this.canplay} height={this.height} lang={lang} xml-data={this.localXmlData} base-url={this.xmlBaseUrl} code-folder-path={this.codeFolderPath} zip-url={this.zipUrl}></lido-home>;
   }
 
